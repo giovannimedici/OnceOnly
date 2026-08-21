@@ -284,12 +284,61 @@ public class IdempotencyMiddlewareTests
     }
 
     /// <summary>
+    /// Tests that reusing a completed key with a different payload returns 422 without calling next().
+    /// </summary>
+    [Fact]
+    public async Task InvokeAsync_ExistingKeyDifferentPayload_Returns422()
+    {
+        // Arrange
+        var originalBody = """{"amount":100.00,"currency":"USD"}""";
+        var differentBody = """{"amount":200.00,"currency":"EUR"}""";
+        var originalHash = Convert.ToHexString(
+            System.Security.Cryptography.SHA256.HashData(Encoding.UTF8.GetBytes(originalBody)));
+
+        var context = CreateHttpContext(differentBody);
+        context.Request.Headers["Idempotency-Key"] = "payload-mismatch-key";
+
+        _mockStore.TryAcquireLockAsync("payload-mismatch-key").Returns(LockResultEnum.Unlocked);
+        _mockStore.GetSavedResponseAsync("payload-mismatch-key").Returns(new SavedResponse(
+            StatusCode: 201,
+            Body: Encoding.UTF8.GetBytes("""{"paymentId":"already-created"}"""),
+            Headers: new Dictionary<string, string> { ["Content-Type"] = "application/json" },
+            PayloadHash: originalHash
+        ));
+
+        bool nextCalled = false;
+        var middleware = new IdempotencyMiddleware(
+            next: _ =>
+            {
+                nextCalled = true;
+                return Task.CompletedTask;
+            },
+            store: _mockStore,
+            options: _options
+        );
+
+        // Act
+        await middleware.InvokeAsync(context);
+
+        // Assert
+        Assert.False(nextCalled, "next() should NOT have been called for a payload mismatch");
+        Assert.Equal(422, context.Response.StatusCode);
+
+        context.Response.Body.Position = 0;
+        using var reader = new StreamReader(context.Response.Body);
+        var responseBody = await reader.ReadToEndAsync();
+        Assert.Contains("does not match the original request", responseBody);
+    }
+
+    /// <summary>
     /// Helper to create a test HttpContext with configurable streams.
     /// </summary>
-    private DefaultHttpContext CreateHttpContext()
+    private DefaultHttpContext CreateHttpContext(string? requestBody = null)
     {
         var context = new DefaultHttpContext();
-        context.Response.Body = new MemoryStream(); // Writable stream for tests
+        context.Response.Body = new MemoryStream();
+        context.Request.Body = new MemoryStream(
+            Encoding.UTF8.GetBytes(requestBody ?? string.Empty));
         return context;
     }
 }

@@ -1,6 +1,12 @@
 @Sample.API_HostAddress = http://localhost:5261
 
-GET {{Sample.API_HostAddress}}/weatherforecast/
-Accept: application/json
+POST {{Sample.API_HostAddress}}/payments
+Content-Type: application/json
+Idempotency-Key: payment-001
+
+{
+  "amount": 100.00,
+  "currency": "USD"
+}
 
 ###

@@ -6,4 +6,9 @@ namespace OnceOnly.Middleware.DTO;
 /// <param name="StatusCode">HTTP status code from the original response.</param>
 /// <param name="Body">Response body as a byte array.</param>
 /// <param name="Headers">Dictionary of HTTP headers to be reapplied during replay.</param>
-public record SavedResponse(int StatusCode, byte[] Body, Dictionary<string, string> Headers);
+/// <param name="PayloadHash">SHA-256 hash of the original request body, used to reject key reuse with a different payload.</param>
+public record SavedResponse(
+    int StatusCode,
+    byte[] Body,
+    Dictionary<string, string> Headers,
+    string? PayloadHash = null);

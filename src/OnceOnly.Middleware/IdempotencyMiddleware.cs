@@ -1,3 +1,4 @@
+using System.Security.Cryptography;
 using Microsoft.AspNetCore.Http;
 using OnceOnly.Middleware.DTO;
 using OnceOnly.Middleware.Enums;
@@ -57,6 +58,7 @@ public class IdempotencyMiddleware
         }
 
         var key = idempotencyKey.ToString();
+        var payloadHash = await ComputePayloadHashAsync(context.Request);
 
         // Try to acquire a lock for this key
         var lockResult = await _store.TryAcquireLockAsync(key);
@@ -72,12 +74,12 @@ public class IdempotencyMiddleware
 
             case LockResultEnum.Unlocked:
                 // FLOW 2 — Key was already processed previously, replay the saved response.
-                await ReplayStoredResponseAsync(context, key);
+                await ReplayStoredResponseAsync(context, key, payloadHash);
                 return;
 
             case LockResultEnum.NotExists:
                 // FLOW 1 — First time seeing this key, process and capture the response.
-                await ProcessAndCaptureResponseAsync(context, key);
+                await ProcessAndCaptureResponseAsync(context, key, payloadHash);
                 return;
 
             default:
@@ -94,7 +96,7 @@ public class IdempotencyMiddleware
     /// capture the content written by the endpoint. After processing, the data is
     /// copied back to the original stream so the client receives the response.
     /// </remarks>
-    private async Task ProcessAndCaptureResponseAsync(HttpContext context, string idempotencyKey)
+    private async Task ProcessAndCaptureResponseAsync(HttpContext context, string idempotencyKey, string payloadHash)
     {
         // Keep reference to the original response stream (typically a network socket)
         var originalBodyStream = context.Response.Body;
@@ -135,7 +137,8 @@ public class IdempotencyMiddleware
             var savedResponse = new SavedResponse(
                 StatusCode: context.Response.StatusCode,
                 Body: bodyBytes,
-                Headers: headersToSave
+                Headers: headersToSave,
+                PayloadHash: payloadHash
             );
 
             // Persist the response in the store for future replays
@@ -164,7 +167,7 @@ public class IdempotencyMiddleware
     /// FLOW 2: Retrieves a previously saved response from the store and resends it to the client,
     /// without calling next() (the real endpoint is never invoked).
     /// </summary>
-    private async Task ReplayStoredResponseAsync(HttpContext context, string idempotencyKey)
+    private async Task ReplayStoredResponseAsync(HttpContext context, string idempotencyKey, string payloadHash)
     {
         // Retrieve the saved response from the store
         var savedResponse = await _store.GetSavedResponseAsync(idempotencyKey);
@@ -175,6 +178,15 @@ public class IdempotencyMiddleware
             // Can happen if the response expired between the lock check and the get, or due to store inconsistency.
             context.Response.StatusCode = StatusCodes.Status500InternalServerError;
             await context.Response.WriteAsync("Error retrieving stored response.");
+            return;
+        }
+
+        if (!string.IsNullOrEmpty(savedResponse.PayloadHash)
+            && !string.Equals(savedResponse.PayloadHash, payloadHash, StringComparison.OrdinalIgnoreCase))
+        {
+            context.Response.StatusCode = StatusCodes.Status422UnprocessableEntity;
+            await context.Response.WriteAsync(
+                "The request payload does not match the original request for this idempotency key.");
             return;
         }
 
@@ -191,5 +203,32 @@ public class IdempotencyMiddleware
         await context.Response.Body.WriteAsync(savedResponse.Body);
 
         // Return without calling next() — the real endpoint is never executed in this flow
+    }
+
+    /// <summary>
+    /// SHA-256 of the request body, used to reject reused keys with a different payload.
+    /// The body is buffered so the endpoint can still read it afterwards.
+    /// </summary>
+    private static async Task<string> ComputePayloadHashAsync(HttpRequest request)
+    {
+        if (!request.Body.CanSeek)
+        {
+            request.EnableBuffering();
+        }
+
+        if (request.Body.CanSeek)
+        {
+            request.Body.Position = 0;
+        }
+
+        using var buffer = new MemoryStream();
+        await request.Body.CopyToAsync(buffer);
+
+        if (request.Body.CanSeek)
+        {
+            request.Body.Position = 0;
+        }
+
+        return Convert.ToHexString(SHA256.HashData(buffer.ToArray()));
     }
 }
