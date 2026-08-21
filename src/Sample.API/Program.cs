@@ -1,44 +1,51 @@
+// Demo project for the OnceOnly idempotency middleware.
+// See the repository README for curl scenarios and configuration: ../../README.md
+
+using OnceOnly.Middleware;
+
 var builder = WebApplication.CreateBuilder(args);
 
-// Add services to the container.
-// Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
+// Lock TTL 30s / saved-response TTL 24h match IdempotencyOptions defaults.
+builder.Services.AddOnceOnly(options =>
+{
+    options.LockTtl = TimeSpan.FromSeconds(30);
+    options.SavedResponseTtl = TimeSpan.FromHours(24);
+});
+
+// In-memory store is registered by AddOnceOnly (zero external dependencies).
+// To switch to Redis once RedisIdempotencyStore is implemented:
+// builder.Services.AddSingleton<IIdempotencyStore, RedisIdempotencyStore>();
+
 var app = builder.Build();
 
-// Configure the HTTP request pipeline.
 if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();
     app.UseSwaggerUI();
 }
 
-app.UseHttpsRedirection();
+app.UseOnceOnly();
 
-var summaries = new[]
+app.MapPost("/payments", async (PaymentRequest request) =>
 {
-    "Freezing", "Bracing", "Chilly", "Cool", "Mild", "Warm", "Balmy", "Hot", "Sweltering", "Scorching"
-};
+    // Simulated processing time so concurrent retries can observe 409 Conflict.
+    // 10s leaves enough time to Send a second request from Postman.
+    await Task.Delay(TimeSpan.FromSeconds(10));
 
-app.MapGet("/weatherforecast", () =>
-{
-    var forecast =  Enumerable.Range(1, 5).Select(index =>
-        new WeatherForecast
-        (
-            DateOnly.FromDateTime(DateTime.Now.AddDays(index)),
-            Random.Shared.Next(-20, 55),
-            summaries[Random.Shared.Next(summaries.Length)]
-        ))
-        .ToArray();
-    return forecast;
-})
-.WithName("GetWeatherForecast")
-.WithOpenApi();
+    var payment = new PaymentResponse(
+        PaymentId: Guid.NewGuid(),
+        Amount: request.Amount,
+        Currency: request.Currency,
+        Status: "completed");
+
+    return Results.Created($"/payments/{payment.PaymentId}", payment);
+});
 
 app.Run();
 
-record WeatherForecast(DateOnly Date, int TemperatureC, string? Summary)
-{
-    public int TemperatureF => 32 + (int)(TemperatureC / 0.5556);
-}
+internal record PaymentRequest(decimal Amount, string Currency);
+
+internal record PaymentResponse(Guid PaymentId, decimal Amount, string Currency, string Status);
