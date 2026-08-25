@@ -2,22 +2,20 @@
 // See the repository README for curl scenarios and configuration: ../../README.md
 
 using OnceOnly.Middleware;
+using StackExchange.Redis;
 
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
-// Lock TTL 30s / saved-response TTL 24h match IdempotencyOptions defaults.
-builder.Services.AddOnceOnly(options =>
+// Requires a running Redis instance.
+var redis = ConnectionMultiplexer.Connect("localhost:6379");
+builder.Services.AddOnceOnly(redis, options =>
 {
     options.LockTtl = TimeSpan.FromSeconds(30);
     options.SavedResponseTtl = TimeSpan.FromHours(24);
 });
-
-// In-memory store is registered by AddOnceOnly (zero external dependencies).
-// To switch to Redis once RedisIdempotencyStore is implemented:
-// builder.Services.AddSingleton<IIdempotencyStore, RedisIdempotencyStore>();
 
 var app = builder.Build();
 

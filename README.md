@@ -1,4 +1,4 @@
-# OnceOnly.Net
+# [OnceOnly.Net](http://OnceOnly.Net)
 
 A lightweight idempotency middleware for ASP.NET Core, preventing duplicate processing of retried requests.
 
@@ -55,15 +55,9 @@ This section documents the reasoning behind a few choices that aren't obvious fr
 
 **Storage as an abstraction, not a fixed dependency.** The core middleware depends on an `IIdempotencyStore` interface, not on Redis directly. This keeps the library flexible (an in-memory implementation is useful for testing; Redis or DynamoDB fit production use) and keeps the middleware's logic independent of any specific storage technology.
 
-## Installation
-
-```bash
-dotnet add package OnceOnly.Net
-```
-
 ## Quick Start
 
-A working demo lives in [`src/Sample.API`](src/Sample.API): a `POST /payments` endpoint that sleeps for 10 seconds so the in-progress (`409`) and replay (`201`) paths are easy to observe.
+A working demo lives in `[src/Sample.API](src/Sample.API)`: a `POST /payments` endpoint that sleeps for 10 seconds so the in-progress (`409`) and replay (`201`) paths are easy to observe.
 
 ```bash
 dotnet run --project src/Sample.API
@@ -121,6 +115,8 @@ curl -i -X POST http://localhost:5261/payments \
   -d '{"amount": 75.00, "currency": "BRL"}'
 ```
 
+
+
 ## Configuration
 
 Register the in-memory store and options, then add the middleware before endpoints:
@@ -141,6 +137,8 @@ app.UseOnceOnly();
 ```csharp
 builder.Services.AddSingleton<IIdempotencyStore, RedisIdempotencyStore>();
 ```
+
+
 
 ## Running Locally / Contributing
 
