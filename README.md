@@ -1,4 +1,4 @@
-# [OnceOnly.Net](http://OnceOnly.Net)
+# OnceOnly.Net
 
 A lightweight idempotency middleware for ASP.NET Core, preventing duplicate processing of retried requests.
 
